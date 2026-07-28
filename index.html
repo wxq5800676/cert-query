@@ -972,11 +972,20 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
 
   // 获取记录中证书的实际 base64 数据（用于前台渲染）
   function getCertBase64(rec, type) {
-    const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
-    const val = rec[field];
-    if (!val) return '';
-    if (val.startsWith('data:')) return val; // 直接是 base64
-    return certMemCache.get(val) || ''; // 从内存缓存取
+    try {
+      const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
+      const val = rec[field];
+      if (!val) return '';
+      if (val.startsWith('data:')) return val; // 直接是 base64
+      const cached = certMemCache.get(val);
+      if (cached) return cached;
+      // 尝试从 IndexedDB 同步获取（适用于 loadCertsFromIDB 尚未执行完的场景）
+      // 注意：这里返回空，base64 依赖 certMemCache 预先加载
+      return '';
+    } catch(e) {
+      console.error('getCertBase64 error:', e);
+      return '';
+    }
   }
 
   // ===== 认证相关函数 =====
@@ -1066,6 +1075,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     document.getElementById('f-series').innerHTML = '<option value="">全部</option>' + seriesList.map(s =>
       `<option value="${s}" ${s === curSeries ? 'selected' : ''}>${s}</option>`
     ).join('');
+    // 重建 CERT_DATA 后重新加载 IndexedDB 证书到内存缓存
+    loadCertsFromIDB();
   }
 
   // Excel parsing
@@ -1331,7 +1342,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       delete data[seriesName][idx][field + '_name'];
     }
     saveImportedData(data);
-    rebuildCertData();
+    rebuildCertData(); // 内部会 loadCertsFromIDB
     // 刷新前台查询界面，使卡片下载按钮立即消失
     render();
     renderProductsForSeries(seriesName);
@@ -1368,7 +1379,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       // 先保存到 localStorage（记录中只含 refKey 引用），再调用 offload 兜底清理任何漏网 base64
       saveImportedData(data);
       await offloadCertsToIDB();
-      rebuildCertData();
+      await rebuildCertData(); // 内部会 loadCertsFromIDB，确保证书加载到内存缓存
       // 刷新前台查询界面，使卡片下载按钮立即出现
       render();
       renderProductsForSeries(seriesName);
@@ -1382,7 +1393,18 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   function readFileAsBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
+      reader.onload = () => {
+        try {
+          const result = reader.result;
+          if (!result || typeof result !== 'string') {
+            reject(new Error('读取结果异常'));
+            return;
+          }
+          resolve(result);
+        } catch(e) {
+          reject(new Error('读取失败：' + (e.message || '未知错误')));
+        }
+      };
       reader.onerror = () => reject(new Error('读取失败'));
       reader.readAsDataURL(file);
     });
@@ -1492,7 +1514,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     try {
       const seriesName = currentFileData._seriesName;
       await mergeImportedData(seriesName, currentFileData.records);
-      rebuildCertData();
+      await rebuildCertData(); // 内部会 loadCertsFromIDB，确保证书加载到内存
       // ===== 同步到云端 API =====
       await syncToCloud();
       curSeries = seriesName;
@@ -1527,7 +1549,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     if (!confirm('确定要清空全部导入数据吗？内置数据不会受影响。此操作不可撤销。')) return;
     clearAllImportedData();
     adminSelectedSeries = null;
-    rebuildCertData();
+    rebuildCertData(); // 内部会 loadCertsFromIDB
     await syncToCloud();  // 同步清空到云端
     refreshFilters();
     renderStats();
