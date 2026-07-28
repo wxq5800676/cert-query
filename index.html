@@ -428,6 +428,19 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     loadCertsFromIDB();
   })();
 
+  // 追加：等 loadCertsFromIDB 完成后刷新一次前台，确保证书加载完毕后下载按钮正确显示
+  window.__loadCertsDone = false;
+  (function waitCertsThenRender(){
+    const check = setInterval(() => {
+      if (window.__cloudSyncReady && window.__loadCertsDone) {
+        clearInterval(check);
+        if (typeof doSearch === 'function') doSearch();
+      }
+    }, 200);
+    // 最多等 10 秒
+    setTimeout(() => clearInterval(check), 10000);
+  })();
+
   window.CERT_FILES = /*__CERT_FILES__*/ {};
   let DATA = window.CERT_DATA || {};
   let seriesList = Object.keys(DATA);
@@ -938,6 +951,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       }
     }
     // 证书加载完成后刷新前台，使首页卡片上的下载按钮生效
+    window.__loadCertsDone = true;
     setTimeout(()=>{ if(typeof doSearch==='function') doSearch(); }, 0);
   }
 
@@ -1303,6 +1317,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     }
     saveImportedData(data);
     rebuildCertData();
+    // 刷新前台查询界面，使卡片下载按钮立即消失
+    render();
     renderProductsForSeries(seriesName);
     showImportResult('success', `已删除 ${seriesName} · ${desc} 的${typeLabel}（${indices.length} 条）`);
   }
@@ -1328,6 +1344,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       }
       saveImportedData(data);
       rebuildCertData();
+      // 刷新前台查询界面，使卡片下载按钮立即出现
+      render();
       renderProductsForSeries(seriesName);
       const desc = data[seriesName][indices[0]]?.['简单描述'] || '';
       showImportResult('success', `✅ 已上传「${file.name}」(${(file.size/1024).toFixed(0)}KB) 到 ${seriesName} · ${desc}（${indices.length} 条）`);
