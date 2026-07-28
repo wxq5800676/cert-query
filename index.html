@@ -900,9 +900,14 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
 
   function saveImportedData(data) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      const json = JSON.stringify(data);
+      // 检查字符串是否过大（localStorage 通常限制 5-10MB）
+      if (json.length > 4 * 1024 * 1024) {
+        throw new Error('数据量超出 localStorage 限制（4MB），请清理旧证书后重试');
+      }
+      localStorage.setItem(STORAGE_KEY, json);
     } catch(e) {
-      if (e.name === 'QuotaExceededError' || /quota/i.test(e.message)) {
+      if (e.name === 'QuotaExceededError' || /quota/i.test(e.message) || /Invalid string length/i.test(e.message)) {
         throw new Error('本地存储空间不足：证书 PDF 文件过大，请清理浏览器数据或联系管理员。');
       }
       throw e;
@@ -1338,8 +1343,16 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       showImportResult('error', '只支持 PDF 格式的证书文件');
       return;
     }
+    if (file.size > 50 * 1024 * 1024) {
+      showImportResult('error', 'PDF 文件过大（最大支持 50MB），请压缩后重试');
+      return;
+    }
     try {
       const base64 = await readFileAsBase64(file);
+      if (base64.length > 200 * 1024 * 1024) {
+        showImportResult('error', 'PDF 文件过大，请压缩后重试');
+        return;
+      }
       const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
       const data = getImportedData();
       if (!data[seriesName]) return;
@@ -1352,7 +1365,9 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
         data[seriesName][idx][field] = refKey;
         data[seriesName][idx][field + '_name'] = file.name;
       }
+      // 先保存到 localStorage（记录中只含 refKey 引用），再调用 offload 兜底清理任何漏网 base64
       saveImportedData(data);
+      await offloadCertsToIDB();
       rebuildCertData();
       // 刷新前台查询界面，使卡片下载按钮立即出现
       render();
