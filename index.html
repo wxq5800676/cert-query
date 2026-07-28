@@ -818,9 +818,9 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
 
   // 页面版本号（便于排查 GitHub Pages 缓存问题）
   (function(){
-    const v = document.getElementById('app-version');
-    if(v) v.textContent = 'v20250122.01';
-  })();
+      const v = document.getElementById('app-version');
+      if(v) v.textContent = 'v20250122.02';
+    })();
 
   // ===== Admin Module =====
   const ADMIN_CONFIG = { defaultUser: 'admin', salt: 'ybx4_cert_sys_2024' };
@@ -895,10 +895,16 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   }
 
   function getImportedData() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { return {}; }
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY) || '{}';
+      return JSON.parse(raw);
+    } catch(e) {
+      console.error('getImportedData parse error:', e);
+      return {};
+    }
   }
 
-  function saveImportedData(data) {
+  function saveImportedData(data, source) {
     try {
       const json = JSON.stringify(data);
       // 检查字符串是否过大（localStorage 通常限制 5-10MB）
@@ -907,6 +913,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       }
       localStorage.setItem(STORAGE_KEY, json);
     } catch(e) {
+      console.error('saveImportedData error (' + (source || 'unknown') + '):', e);
       if (e.name === 'QuotaExceededError' || /quota/i.test(e.message) || /Invalid string length/i.test(e.message)) {
         throw new Error('本地存储空间不足：证书 PDF 文件过大，请清理浏览器数据或联系管理员。');
       }
@@ -915,8 +922,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   }
 
   // 将 CERT_DATA 中的 base64 证书抽离到 IndexedDB，记录中只保留引用标记
-  async function offloadCertsToIDB() {
-    const data = getImportedData();
+  async function offloadCertsToIDB(inputData) {
+    const data = inputData || getImportedData();
     let changed = false;
     for (const [sname, recs] of Object.entries(data)) {
       for (let idx = 0; idx < recs.length; idx++) {
@@ -936,7 +943,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
         }
       }
     }
-    if (changed) saveImportedData(data);
+    if (changed) saveImportedData(data, 'offloadCertsToIDB');
     return data;
   }
 
@@ -1018,7 +1025,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   // ===== 云端同步 =====
   async function mergeImportedData(seriesName, records) {
     // 先把已有的 base64 证书迁移到 IndexedDB，避免 localStorage 超出配额
-    const data = await offloadCertsToIDB();
+    let data = await offloadCertsToIDB();
     const oldRecords = data[seriesName] || [];
     // 按 简单描述+防护等级+证书编号 建立旧记录索引，保留已上传的证书文件引用
     const oldMap = new Map();
@@ -1037,15 +1044,15 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       }
     });
     data[seriesName] = records;
-    saveImportedData(data);
+    saveImportedData(data, 'mergeImportedData');
     // 再次迁移新数据中可能包含的 base64 证书
-    await offloadCertsToIDB();
+    await offloadCertsToIDB(data);
   }
 
   function removeImportedSeries(seriesName) {
     const data = getImportedData();
     delete data[seriesName];
-    saveImportedData(data);
+    saveImportedData(data, 'removeImportedSeries');
   }
 
   async function clearAllImportedData() { localStorage.removeItem(STORAGE_KEY); await idbClear(); }
@@ -1327,7 +1334,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   async function handleCertDelete(seriesName, indices, type) {
     const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
     const typeLabel = type === 'ex' ? '防爆合格证' : 'CCC证书';
-    const data = getImportedData();
+    let data = await offloadCertsToIDB();
     if (!data[seriesName]) return;
     const desc = data[seriesName][indices[0]]?.['简单描述'] || '';
     if (!confirm(`确定要删除「${desc}」共 ${indices.length} 条记录的${typeLabel}吗？`)) return;
@@ -1341,8 +1348,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       delete data[seriesName][idx][field];
       delete data[seriesName][idx][field + '_name'];
     }
-    saveImportedData(data);
-    rebuildCertData(); // 内部会 loadCertsFromIDB
+    saveImportedData(data, 'handleCertDelete');
+    await rebuildCertData(); // 内部会 loadCertsFromIDB
     // 刷新前台查询界面，使卡片下载按钮立即消失
     render();
     renderProductsForSeries(seriesName);
@@ -1365,7 +1372,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
         return;
       }
       const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
-      const data = getImportedData();
+      // 先清理已有数据中的 base64，避免 saveImportedData 时字符串过大
+      let data = await offloadCertsToIDB();
       if (!data[seriesName]) return;
       // 对所有同描述记录批量设置证书（共享同一个 base64）
       for (const idx of indices) {
@@ -1376,9 +1384,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
         data[seriesName][idx][field] = refKey;
         data[seriesName][idx][field + '_name'] = file.name;
       }
-      // 先保存到 localStorage（记录中只含 refKey 引用），再调用 offload 兜底清理任何漏网 base64
-      saveImportedData(data);
-      await offloadCertsToIDB();
+      saveImportedData(data, 'handleCertUpload');
       await rebuildCertData(); // 内部会 loadCertsFromIDB，确保证书加载到内存缓存
       // 刷新前台查询界面，使卡片下载按钮立即出现
       render();
@@ -1386,6 +1392,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
       const desc = data[seriesName][indices[0]]?.['简单描述'] || '';
       showImportResult('success', `✅ 已上传「${file.name}」(${(file.size/1024).toFixed(0)}KB) 到 ${seriesName} · ${desc}（${indices.length} 条）`);
     } catch (err) {
+      console.error('handleCertUpload error:', err);
       showImportResult('error', '文件读取失败：' + err.message);
     }
   }
