@@ -875,17 +875,26 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { return {}; }
   }
 
-  function saveImportedData(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+  function saveImportedData(data) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch(e) {
+      if (e.name === 'QuotaExceededError' || /quota/i.test(e.message)) {
+        throw new Error('本地存储空间不足：证书 PDF 文件过大，请清理浏览器数据或联系管理员。');
+      }
+      throw e;
+    }
+  }
 
   // 将 CERT_DATA 中的 base64 证书抽离到 IndexedDB，记录中只保留引用标记
   async function offloadCertsToIDB() {
     const data = getImportedData();
+    let changed = false;
     for (const [sname, recs] of Object.entries(data)) {
       for (let idx = 0; idx < recs.length; idx++) {
         const r = recs[idx];
         for (const type of ['ex', 'ccc']) {
           const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
-          const nameField = field + '_name';
           const val = r[field];
           if (val && val.startsWith('data:application/pdf;base64,')) {
             // 存入 IndexedDB
@@ -894,12 +903,13 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
             certMemCache.set(refKey, val);
             // 记录中只保留引用标记
             r[field] = refKey;
-            if (r[nameField]) r[nameField] = r[nameField];
+            changed = true;
           }
         }
       }
     }
-    saveImportedData(data);
+    if (changed) saveImportedData(data);
+    return data;
   }
 
   // 从 IndexedDB 加载证书到内存缓存
@@ -968,8 +978,9 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   }
 
   // ===== 云端同步 =====
-  function mergeImportedData(seriesName, records) {
-    const data = getImportedData();
+  async function mergeImportedData(seriesName, records) {
+    // 先把已有的 base64 证书迁移到 IndexedDB，避免 localStorage 超出配额
+    const data = await offloadCertsToIDB();
     const oldRecords = data[seriesName] || [];
     // 按 简单描述+防护等级+证书编号 建立旧记录索引，保留已上传的证书文件引用
     const oldMap = new Map();
@@ -989,8 +1000,8 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     });
     data[seriesName] = records;
     saveImportedData(data);
-    // 将已有的 base64 证书自动迁移到 IndexedDB
-    offloadCertsToIDB();
+    // 再次迁移新数据中可能包含的 base64 证书
+    await offloadCertsToIDB();
   }
 
   function removeImportedSeries(seriesName) {
@@ -1437,7 +1448,7 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
     if (!currentFileData) return;
     try {
       const seriesName = currentFileData._seriesName;
-      mergeImportedData(seriesName, currentFileData.records);
+      await mergeImportedData(seriesName, currentFileData.records);
       rebuildCertData();
       // ===== 同步到云端 API =====
       await syncToCloud();
