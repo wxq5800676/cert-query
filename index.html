@@ -1001,6 +1001,22 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
 
   async function clearAllImportedData() { localStorage.removeItem(STORAGE_KEY); await idbClear(); }
 
+  // 将本地导入的数据同步到云端 API（在 GitHub Pages 等静态托管环境会静默失败）
+  async function syncToCloud() {
+    try {
+      const data = getImportedData();
+      const resp = await fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return resp.ok;
+    } catch(e) {
+      // 静态托管环境无后端 API，忽略错误
+      return false;
+    }
+  }
+
   function rebuildCertData() {
     const imported = getImportedData();
     window.CERT_DATA = { ...window.__CERT_DATA_BUILTIN, ...imported };
@@ -1419,23 +1435,29 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
 
   $('btn-import').addEventListener('click', async function() {
     if (!currentFileData) return;
-    const seriesName = currentFileData._seriesName;
-    mergeImportedData(seriesName, currentFileData.records);
-    rebuildCertData();
-    // ===== 同步到云端 API =====
-    await syncToCloud();
-    curSeries = seriesName;
-    refreshFilters();
-    renderStats();
-    render();
-    adminSelectedSeries = seriesName;
-    renderSeriesNav();
-    showImportResult('success', `✅ 成功导入「${seriesName}」${currentFileData.rowCount} 条记录（已同步到云端）`);
-    currentFileData = null;
-    $('upload-preview').style.display = 'none';
-    $('btn-import').style.display = 'none';
-    $('btn-cancel-import').style.display = 'none';
-    $('file-input').value = '';
+    try {
+      const seriesName = currentFileData._seriesName;
+      mergeImportedData(seriesName, currentFileData.records);
+      rebuildCertData();
+      // ===== 同步到云端 API =====
+      await syncToCloud();
+      curSeries = seriesName;
+      refreshFilters();
+      renderStats();
+      render();
+      adminSelectedSeries = seriesName;
+      renderSeriesNav();
+      renderProductsForSeries(adminSelectedSeries);
+      showImportResult('success', `✅ 成功导入「${seriesName}」${currentFileData.rowCount} 条记录（已同步到云端）`);
+      currentFileData = null;
+      $('upload-preview').style.display = 'none';
+      $('btn-import').style.display = 'none';
+      $('btn-cancel-import').style.display = 'none';
+      $('file-input').value = '';
+    } catch(err) {
+      console.error('导入失败:', err);
+      showImportResult('error', `导入失败：${err.message || '未知错误'}`);
+    }
   });
 
   $('btn-cancel-import').addEventListener('click', function() {
