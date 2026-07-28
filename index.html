@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>防爆电机证书快速查询 · YBX4系列</title>
 <style>
   :root{
@@ -290,7 +293,8 @@
 
   <footer>
     数据来源：YBX4系列防爆合格证汇总表<br/>
-    本工具仅作证书状态快速核对，正式生产前请以最新纸质/官方证书为准。
+    本工具仅作证书状态快速核对，正式生产前请以最新纸质/官方证书为准。<br/>
+    <span id="app-version" style="font-size:11px;opacity:.7"></span>
   </footer>
 </div>
 
@@ -811,6 +815,12 @@ window.__CERT_DATA_BUILTIN = JSON.parse(JSON.stringify(window.CERT_DATA));
   });
 
   render();
+
+  // 页面版本号（便于排查 GitHub Pages 缓存问题）
+  (function(){
+    const v = document.getElementById('app-version');
+    if(v) v.textContent = 'v20250122.01';
+  })();
 
   // ===== Admin Module =====
   const ADMIN_CONFIG = { defaultUser: 'admin', salt: 'ybx4_cert_sys_2024' };
