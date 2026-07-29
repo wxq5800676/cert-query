@@ -17,14 +17,14 @@
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     background:var(--bg);color:var(--txt);min-height:100vh}
-  header{padding:20px 28px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#fff,#f3f6fa);position:relative;overflow:hidden}
+  header{padding:20px 28px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#fff,#f3f6fa);display:flex;justify-content:space-between;align-items:center;gap:20px}
   header h1{margin:0;font-size:21px;letter-spacing:.5px;color:#23303f}
   header h1 .tag{color:var(--accent);font-weight:700}
-  header p{margin:6px 0 0;color:var(--muted);font-size:13px;position:relative;z-index:1}
-  header h1{position:relative;z-index:1}
-  .bg-logo{position:absolute;top:50%;transform:translateY(-50%);background-size:contain;background-repeat:no-repeat;background-position:center;opacity:.12;pointer-events:none;z-index:0}
-  .bg-logo.ccc{left:28px;width:86px;height:86px;background-image:url('images/ccc-logo.jpg')}
-  .bg-logo.cnex{right:28px;width:150px;height:90px;background-image:url('images/cnex-logo.png')}
+  header p{margin:6px 0 0;color:var(--muted);font-size:13px}
+  .header-brand{flex:1;min-width:0}
+  .header-logos{display:flex;align-items:center;gap:18px;flex:none}
+  .header-logos img{height:64px;width:auto;display:block}
+  .header-logos img.cnex{height:58px}
   .wrap{max-width:1200px;margin:0 auto;padding:18px 28px 60px}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:16px 0 20px}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:0 1px 2px rgba(20,40,70,.04)}
@@ -116,10 +116,12 @@
   /* ===== 手机端适配 ===== */
   @media(max-width:600px){
     .wrap{padding:12px 14px 50px}
-    header{padding:14px 16px 12px}
+    header{padding:14px 16px 12px;flex-wrap:wrap;gap:12px}
     header h1{font-size:18px}
     header p{font-size:12px}
-    .bg-logo{display:none}
+    .header-logos{order:-1;width:100%;justify-content:flex-start;gap:12px}
+    .header-logos img{height:40px}
+    .header-logos img.cnex{height:36px}
     .stats{grid-template-columns:repeat(2,1fr);gap:10px}
     .stat{padding:11px 12px}
     .stat .n{font-size:22px}
@@ -229,10 +231,14 @@
 </head>
 <body>
 <header>
-  <div class="bg-logo ccc"></div>
-  <div class="bg-logo cnex"></div>
-  <h1>🛡️ 皖南电机防爆电机证书<span class="tag">快速查询</span>模块</h1>
-  <p>防爆合格证 + CCC 证书「双证齐全」方可生产 · 按产品系列汇总展示</p>
+  <div class="header-brand">
+    <h1>🛡️ 皖南电机防爆电机证书<span class="tag">快速查询</span>模块</h1>
+    <p>防爆合格证 + CCC 证书「双证齐全」方可生产 · 按产品系列汇总展示</p>
+  </div>
+  <div class="header-logos">
+    <img src="images/ccc-logo.jpg" alt="CCC 认证">
+    <img src="images/cnex-logo.png" alt="国家防爆 CNEX" class="cnex">
+  </div>
 </header>
 
 <div class="wrap">
