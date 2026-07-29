@@ -699,7 +699,9 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
     window.__groupDlData.set(key, downloads);
     if(downloads.length===1){
       const d = downloads[0];
-      return `<a class="dl-btn ${cls}" href="${d.b64}" download="${d.name}">${label}</a>`;
+      const ref = d.ref || '';
+      const isInline = !ref && d.b64 && d.b64.startsWith('data:');
+      return `<a class="dl-btn ${cls}" href="javascript:void(0)" data-ref="${ref}" data-b64="${isInline ? d.b64 : ''}" data-name="${d.name}" onclick="window.__downloadCert(this)">${label}</a>`;
     }
     return `<select class="dl-select ${cls}" data-dl-key="${key}" onchange="window.__onGroupDlChange(this)">`+
       `<option value="">${label} (${downloads.length})</option>`+
@@ -716,6 +718,16 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
     a.href = d.b64; a.download = d.name; a.style.display='none';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     sel.value = '';
+  };
+  window.__downloadCert = function(btn){
+    const ref = btn.getAttribute('data-ref');
+    const inlineB64 = btn.getAttribute('data-b64');
+    const name = btn.getAttribute('data-name') || '证书.pdf';
+    const b64 = inlineB64 || (ref ? certMemCache.get(ref) : '') || '';
+    if(!b64){ alert('证书文件未加载，请刷新页面'); return; }
+    const a = document.createElement('a');
+    a.href = b64; a.download = name; a.style.display='none';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
   function renderGroup(item){
@@ -736,8 +748,8 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
     dispCerts.forEach(c=>{
       const exFile = getCertBase64(c, 'ex');
       const cccFile = getCertBase64(c, 'ccc');
-      if(exFile) exDownloads.push({b64:exFile, name:c['防爆合格证文件_name']||'防爆合格证.pdf', cert:c['证书编号']||''});
-      if(cccFile) cccDownloads.push({b64:cccFile, name:c['CCC证书文件_name']||'CCC证书.pdf', cert:c['证书编号']||''});
+      if(exFile) exDownloads.push({b64:exFile, ref:getCertRef(c,'ex'), name:c['防爆合格证文件_name']||'防爆合格证.pdf', cert:c['证书编号']||''});
+      if(cccFile) cccDownloads.push({b64:cccFile, ref:getCertRef(c,'ccc'), name:c['CCC证书文件_name']||'CCC证书.pdf', cert:c['证书编号']||''});
     });
     const groupKey = g.series + '|' + g.desc + '|' + (g.prots[0]||'');
     const topDlHtml = (exDownloads.length || cccDownloads.length)
@@ -750,14 +762,18 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
       const hasCcc=c['CCC证书']==='有';
       const exFile = getCertBase64(c, 'ex');
       const cccFile = getCertBase64(c, 'ccc');
+      const exRef = getCertRef(c, 'ex');
+      const cccRef = getCertRef(c, 'ccc');
       const exName = c['防爆合格证文件_name'] || '防爆合格证.pdf';
       const cccName = c['CCC证书文件_name'] || 'CCC证书.pdf';
       let dl = '';
       if (exFile) {
-        dl += `<a class="dl-btn" href="${exFile}" download="${exName}">下载防爆证</a>`;
+        const isInline = !exRef && exFile.startsWith('data:');
+        dl += `<a class="dl-btn" href="javascript:void(0)" data-ref="${exRef}" data-b64="${isInline ? exFile : ''}" data-name="${exName}" onclick="window.__downloadCert(this)">下载防爆证</a>`;
       }
       if (cccFile) {
-        dl += `<a class="dl-btn ccc" href="${cccFile}" download="${cccName}">下载CCC证</a>`;
+        const isInline = !cccRef && cccFile.startsWith('data:');
+        dl += `<a class="dl-btn ccc" href="javascript:void(0)" data-ref="${cccRef}" data-b64="${isInline ? cccFile : ''}" data-name="${cccName}" onclick="window.__downloadCert(this)">下载CCC证</a>`;
       }
       return `<div class="cert-row ${hasCcc?'':'crow-bad'}">`+
         `<span class="dot ${c['证书编号']?'y':'n'}"></span>`+
@@ -1044,6 +1060,17 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
       console.error('getCertBase64 error:', e);
       return '';
     }
+  }
+
+  // 获取记录中证书的引用 key（用于避免把 base64 塞进 DOM）
+  function getCertRef(rec, type) {
+    try {
+      const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
+      const val = rec[field];
+      if (!val) return '';
+      if (val.startsWith('data:')) return '';
+      return val;
+    } catch(e) { return ''; }
   }
 
   // ===== 认证相关函数 =====
