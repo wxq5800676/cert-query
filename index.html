@@ -700,31 +700,33 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
     if(downloads.length===1){
       const d = downloads[0];
       const ref = d.ref || '';
-      const isInline = !ref && d.b64 && d.b64.startsWith('data:');
-      return `<a class="dl-btn ${cls}" href="javascript:void(0)" data-ref="${ref}" data-b64="${isInline ? d.b64 : ''}" data-name="${d.name}" onclick="window.__downloadCert(this)">${label}</a>`;
+      return `<a class="dl-btn ${cls}" href="javascript:void(0)" data-ref="${ref}" data-name="${d.name}" onclick="window.__downloadCert(this)">${label}</a>`;
     }
     return `<select class="dl-select ${cls}" data-dl-key="${key}" onchange="window.__onGroupDlChange(this)">`+
       `<option value="">${label} (${downloads.length})</option>`+
       downloads.map((d,i)=>`<option value="${i}">${d.cert||d.name}</option>`).join('')+
       `</select>`;
   }
-  window.__onGroupDlChange = function(sel){
+  window.__onGroupDlChange = async function(sel){
     const idx = parseInt(sel.value);
     if(isNaN(idx)) return;
     const downloads = window.__groupDlData.get(sel.dataset.dlKey);
     if(!downloads || !downloads[idx]) return;
     const d = downloads[idx];
+    let b64 = d.ref ? (certMemCache.get(d.ref) || await idbGet(d.ref) || '') : '';
+    if(!b64){ alert('证书文件未加载，请刷新页面'); return; }
+    certMemCache.set(d.ref, b64);
     const a = document.createElement('a');
-    a.href = d.b64; a.download = d.name; a.style.display='none';
+    a.href = b64; a.download = d.name; a.style.display='none';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     sel.value = '';
   };
-  window.__downloadCert = function(btn){
+  window.__downloadCert = async function(btn){
     const ref = btn.getAttribute('data-ref');
-    const inlineB64 = btn.getAttribute('data-b64');
     const name = btn.getAttribute('data-name') || '证书.pdf';
-    const b64 = inlineB64 || (ref ? certMemCache.get(ref) : '') || '';
+    let b64 = ref ? (certMemCache.get(ref) || await idbGet(ref) || '') : '';
     if(!b64){ alert('证书文件未加载，请刷新页面'); return; }
+    certMemCache.set(ref, b64);
     const a = document.createElement('a');
     a.href = b64; a.download = name; a.style.display='none';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -746,10 +748,8 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
     // 产品级顶部下载：收集当前产品下所有已上传的防爆合格证 / CCC 证
     const exDownloads=[]; const cccDownloads=[];
     dispCerts.forEach(c=>{
-      const exFile = getCertBase64(c, 'ex');
-      const cccFile = getCertBase64(c, 'ccc');
-      if(exFile) exDownloads.push({b64:exFile, ref:getCertRef(c,'ex'), name:c['防爆合格证文件_name']||'防爆合格证.pdf', cert:c['证书编号']||''});
-      if(cccFile) cccDownloads.push({b64:cccFile, ref:getCertRef(c,'ccc'), name:c['CCC证书文件_name']||'CCC证书.pdf', cert:c['证书编号']||''});
+      if(hasCert(c,'ex')) exDownloads.push({ref:getCertRef(c,'ex'), name:c['防爆合格证文件_name']||'防爆合格证.pdf', cert:c['证书编号']||''});
+      if(hasCert(c,'ccc')) cccDownloads.push({ref:getCertRef(c,'ccc'), name:c['CCC证书文件_name']||'CCC证书.pdf', cert:c['证书编号']||''});
     });
     const groupKey = g.series + '|' + g.desc + '|' + (g.prots[0]||'');
     const topDlHtml = (exDownloads.length || cccDownloads.length)
@@ -760,20 +760,16 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
       : '';
     const certsHtml = dispCerts.map(c=>{
       const hasCcc=c['CCC证书']==='有';
-      const exFile = getCertBase64(c, 'ex');
-      const cccFile = getCertBase64(c, 'ccc');
       const exRef = getCertRef(c, 'ex');
       const cccRef = getCertRef(c, 'ccc');
       const exName = c['防爆合格证文件_name'] || '防爆合格证.pdf';
       const cccName = c['CCC证书文件_name'] || 'CCC证书.pdf';
       let dl = '';
-      if (exFile) {
-        const isInline = !exRef && exFile.startsWith('data:');
-        dl += `<a class="dl-btn" href="javascript:void(0)" data-ref="${exRef}" data-b64="${isInline ? exFile : ''}" data-name="${exName}" onclick="window.__downloadCert(this)">下载防爆证</a>`;
+      if (hasCert(c, 'ex')) {
+        dl += `<a class="dl-btn" href="javascript:void(0)" data-ref="${exRef}" data-name="${exName}" onclick="window.__downloadCert(this)">下载防爆证</a>`;
       }
-      if (cccFile) {
-        const isInline = !cccRef && cccFile.startsWith('data:');
-        dl += `<a class="dl-btn ccc" href="javascript:void(0)" data-ref="${cccRef}" data-b64="${isInline ? cccFile : ''}" data-name="${cccName}" onclick="window.__downloadCert(this)">下载CCC证</a>`;
+      if (hasCert(c, 'ccc')) {
+        dl += `<a class="dl-btn ccc" href="javascript:void(0)" data-ref="${cccRef}" data-name="${cccName}" onclick="window.__downloadCert(this)">下载CCC证</a>`;
       }
       return `<div class="cert-row ${hasCcc?'':'crow-bad'}">`+
         `<span class="dot ${c['证书编号']?'y':'n'}"></span>`+
@@ -883,7 +879,8 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
   // ===== IndexedDB 证书文件存储（解决 localStorage 5MB 限制） =====
   const IDB_NAME = 'CertFilesDB';
   const IDB_STORE = 'certFiles';
-  let certMemCache = new Map(); // 内存缓存: key -> base64
+  let certMemCache = new Map(); // 内存缓存: key -> base64（仅在下载时按需填充）
+  let availableCertRefs = new Set(); // 已上传证书的引用 key 集合（仅 key，不占内存）
 
   let idbDB = null;
 
@@ -919,6 +916,17 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
       const tx = db.transaction(IDB_STORE, 'readonly');
       const req = tx.objectStore(IDB_STORE).get(key);
       req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // 仅取 key（不读 base64 内容），避免启动加载时占用大量内存（移动端友好）
+  async function idbGetKeys() {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).getAllKeys();
+      req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
   }
@@ -1006,33 +1014,13 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
   async function loadCertsFromIDB() {
     return new Promise(async (resolve) => {
       try {
-        const data = getImportedData();
-        const keys = [];
-        for (const [sname, recs] of Object.entries(data)) {
-          for (let idx = 0; idx < recs.length; idx++) {
-            const r = recs[idx];
-            for (const type of ['ex', 'ccc']) {
-              const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
-              const val = r[field];
-              if (val && val.includes('|')) {
-                keys.push(val);
-              }
-            }
-          }
-        }
-        // 批量加载
-        let loaded = 0, missed = 0;
-        for (const key of keys) {
-          if (!certMemCache.has(key)) {
-            try {
-              const b64 = await idbGet(key);
-              if (b64) { certMemCache.set(key, b64); loaded++; }
-              else { missed++; }
-            } catch(e) { missed++; }
-          }
-        }
-        if (keys.length) console.log('[cert] IndexedDB 证书加载完成:', loaded, '成功,', missed, '缺失,', '总计', keys.length);
-        // 证书加载完成后刷新前台，使首页卡片上的下载按钮生效
+        availableCertRefs = new Set();
+        try {
+          const keys = await idbGetKeys();
+          keys.forEach(k => availableCertRefs.add(k));
+        } catch(e) { console.error('[cert] idbGetKeys error:', e); }
+        console.log('[cert] 可用证书引用数:', availableCertRefs.size, '（base64 改为按需加载，不占用启动内存）');
+        // 证书引用就绪后刷新前台，使首页卡片上的下载按钮生效
         window.__loadCertsDone = true;
         setTimeout(()=>{ if(typeof doSearch==='function') doSearch(); }, 0);
         resolve();
@@ -1060,6 +1048,17 @@ window.__CERT_DATA_BUILTIN = localStorage.getItem('cert_builtin_cleared')
       console.error('getCertBase64 error:', e);
       return '';
     }
+  }
+
+  // 仅判断某证书是否已上传（不取 base64，避免占用内存）
+  function hasCert(rec, type) {
+    try {
+      const field = type === 'ex' ? '防爆合格证文件' : 'CCC证书文件';
+      const val = rec[field];
+      if (!val) return false;
+      if (val.startsWith('data:')) return true;
+      return availableCertRefs.has(val) || certMemCache.has(val);
+    } catch(e) { return false; }
   }
 
   // 获取记录中证书的引用 key（用于避免把 base64 塞进 DOM）
